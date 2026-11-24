@@ -89,10 +89,10 @@ rule trimmomatic:
         r1=reads_r1,
         r2=reads_r2,
     output:
-        r1_paired="results/{sample}/trimmed/R1_paired.fastq",
-        r1_unpaired="results/{sample}/trimmed/R1_unpaired.fastq",
-        r2_paired="results/{sample}/trimmed/R2_paired.fastq",
-        r2_unpaired="results/{sample}/trimmed/R2_unpaired.fastq",
+        r1_paired="results/{sample}/trimmed/R1_paired.fastq.gz",
+        r1_unpaired="results/{sample}/trimmed/R1_unpaired.fastq.gz",
+        r2_paired="results/{sample}/trimmed/R2_paired.fastq.gz",
+        r2_unpaired="results/{sample}/trimmed/R2_unpaired.fastq.gz",
     params:
         steps=config["trimmomatic_steps"],
     threads: config["threads"]["trimmomatic"]
@@ -109,8 +109,8 @@ rule trimmomatic:
 
 rule spades:
     input:
-        r1="results/{sample}/trimmed/R1_paired.fastq",
-        r2="results/{sample}/trimmed/R2_paired.fastq",
+        r1="results/{sample}/trimmed/R1_paired.fastq.gz",
+        r2="results/{sample}/trimmed/R2_paired.fastq.gz",
     output:
         "results/{sample}/assembly/contigs.fasta"
     params:
@@ -125,8 +125,8 @@ rule spades:
 rule abundance:
     input:
         contigs="results/{sample}/assembly/contigs.fasta",
-        r1="results/{sample}/trimmed/R1_paired.fastq",
-        r2="results/{sample}/trimmed/R2_paired.fastq",
+        r1="results/{sample}/trimmed/R1_paired.fastq.gz",
+        r2="results/{sample}/trimmed/R2_paired.fastq.gz",
     output:
         bam="results/{sample}/mapping/aln.bam",
         depth="results/{sample}/mapping/abundance_data.tsv",
