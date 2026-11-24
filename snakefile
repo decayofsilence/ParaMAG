@@ -79,7 +79,7 @@ rule fastqc:
     benchmark: "benchmarks/{sample}/fastqc.tsv"
     shell:
         """
-        fastqc -t {threads} {input.r1} {input.r2} -o results/{wildcards.sample}/qc/ > {log} 2>&1
+        fastqc -t {threads} {input.r1} {input.r2} --outdir results/{wildcards.sample}/qc/ > {log} 2>&1
         touch {output}
         """
 
