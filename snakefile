@@ -74,9 +74,12 @@ rule fastqc:
         r2=reads_r2,
     output:
         "results/{sample}/qc/fastqc_done"
+    threads: config["threads"]["fastqc"]
+    log: "logs/{sample}/fastqc.log"
+    benchmark: "benchmarks/{sample}/fastqc.tsv"
     shell:
         """
-        fastqc {input.r1} {input.r2} -o results/{wildcards.sample}/qc/
+        fastqc -t {threads} {input.r1} {input.r2} -o results/{wildcards.sample}/qc/ > {log} 2>&1
         touch {output}
         """
 
@@ -92,12 +95,15 @@ rule trimmomatic:
         r2_unpaired="results/{sample}/trimmed/R2_unpaired.fastq",
     params:
         steps=config["trimmomatic_steps"],
+    threads: config["threads"]["trimmomatic"]
+    log: "logs/{sample}/trimmomatic.log"
+    benchmark: "benchmarks/{sample}/trimmomatic.tsv"
     shell:
         """
-        trimmomatic PE {input.r1} {input.r2} \
+        trimmomatic PE -threads {threads} {input.r1} {input.r2} \
             {output.r1_paired} {output.r1_unpaired} \
             {output.r2_paired} {output.r2_unpaired} \
-            {params.steps}
+            {params.steps} > {log} 2>&1
         """
 
 
@@ -109,8 +115,11 @@ rule spades:
         "results/{sample}/assembly/contigs.fasta"
     params:
         mode=config["spades_mode"],
+    threads: config["threads"]["spades"]
+    log: "logs/{sample}/spades.log"
+    benchmark: "benchmarks/{sample}/spades.tsv"
     shell:
-        "spades.py {params.mode} -1 {input.r1} -2 {input.r2} -o results/{wildcards.sample}/assembly/"
+        "spades.py {params.mode} -t {threads} -1 {input.r1} -2 {input.r2} -o results/{wildcards.sample}/assembly/ > {log} 2>&1"
 
 
 rule abundance:
@@ -123,12 +132,15 @@ rule abundance:
         depth="results/{sample}/mapping/abundance_data.tsv",
     params:
         index="results/{sample}/mapping/contigs_index",
+    threads: config["threads"]["bowtie2"]
+    log: "logs/{sample}/abundance.log"
+    benchmark: "benchmarks/{sample}/abundance.tsv"
     shell:
         """
-        bowtie2-build {input.contigs} {params.index}
-        bowtie2 -x {params.index} -1 {input.r1} -2 {input.r2} | samtools view -bS - | samtools sort -o {output.bam}
+        bowtie2-build --threads {threads} {input.contigs} {params.index} > {log} 2>&1
+        bowtie2 -p {threads} -x {params.index} -1 {input.r1} -2 {input.r2} 2>> {log} | samtools view -bS - | samtools sort -o {output.bam}
         samtools index {output.bam}
-        jgi_summarize_bam_contig_depths --outputDepth {output.depth} {output.bam}
+        jgi_summarize_bam_contig_depths --outputDepth {output.depth} {output.bam} >> {log} 2>&1
         """
 
 
@@ -137,8 +149,9 @@ rule coverage:
         "results/{sample}/mapping/aln.bam"
     output:
         "results/{sample}/mapping/coverage.tsv"
+    log: "logs/{sample}/coverage.log"
     shell:
-        "samtools idxstats {input} > {output}"
+        "samtools idxstats {input} > {output} 2> {log}"
 
 
 rule maxbin:
@@ -151,8 +164,11 @@ rule maxbin:
         "results/{sample}/maxbin/bin.003.fasta",
         "results/{sample}/maxbin/bin.004.fasta",
         "results/{sample}/maxbin/bin.005.fasta",
+    threads: config["threads"]["maxbin"]
+    log: "logs/{sample}/maxbin.log"
+    benchmark: "benchmarks/{sample}/maxbin.tsv"
     shell:
-        "run_MaxBin.pl -contig {input.contigs} -out results/{wildcards.sample}/maxbin/bin -abund {input.abund}"
+        "run_MaxBin.pl -thread {threads} -contig {input.contigs} -out results/{wildcards.sample}/maxbin/bin -abund {input.abund} > {log} 2>&1"
 
 
 rule busco:
@@ -160,8 +176,11 @@ rule busco:
         "results/{sample}/maxbin/bin.{binid}.fasta"
     output:
         "results/{sample}/busco/bin.{binid}/short_summary.specific.fungi_odb10.txt"
+    threads: config["threads"]["busco"]
+    log: "logs/{sample}/busco_bin.{binid}.log"
+    benchmark: "benchmarks/{sample}/busco_bin.{binid}.tsv"
     shell:
-        "busco -i {input} -l fungi_odb10 -o results/{wildcards.sample}/busco/bin.{wildcards.binid} -m genome"
+        "busco -c {threads} -i {input} -l fungi_odb10 -o results/{wildcards.sample}/busco/bin.{wildcards.binid} -m genome > {log} 2>&1"
 
 
 rule align_bins:
@@ -169,10 +188,12 @@ rule align_bins:
         bin_fastas
     output:
         "results/{sample}/phylogeny/aligned_bins.fasta"
+    log: "logs/{sample}/align_bins.log"
+    benchmark: "benchmarks/{sample}/align_bins.tsv"
     shell:
         """
         cat {input} > results/{wildcards.sample}/phylogeny/concatenated_bins.fasta
-        mafft --auto results/{wildcards.sample}/phylogeny/concatenated_bins.fasta > {output}
+        mafft --auto results/{wildcards.sample}/phylogeny/concatenated_bins.fasta > {output} 2> {log}
         """
 
 
@@ -181,9 +202,11 @@ rule phylogenomics:
         "results/{sample}/phylogeny/aligned_bins.fasta"
     output:
         "results/{sample}/phylogeny/super_tree_output.tre"
+    log: "logs/{sample}/phylogenomics.log"
+    benchmark: "benchmarks/{sample}/phylogenomics.tsv"
     shell:
         """
-        iqtree2 -s {input} -m MFP -bb 1000 -nt AUTO -pre results/{wildcards.sample}/phylogeny/iqtree_output
+        iqtree2 -s {input} -m MFP -bb 1000 -nt AUTO -pre results/{wildcards.sample}/phylogeny/iqtree_output > {log} 2>&1
         cp results/{wildcards.sample}/phylogeny/iqtree_output.treefile {output}
         """
 

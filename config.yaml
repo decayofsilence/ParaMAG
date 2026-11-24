@@ -8,14 +8,15 @@ trimmomatic_steps: "ILLUMINACLIP:adapters.fa:2:30:10 LEADING:3 TRAILING:3 SLIDIN
 
 spades_mode: "--sc"             # single-cell (MDA) mode, as in the paper
 
-# Used from stage 1 on (not read by the snakefile yet)
-threads:                        # lab server: 32 cores, 62 GB RAM
+threads:                        # per-step threads; lab server: 32 cores, 62 GB RAM
   fastqc: 4
   trimmomatic: 8
   spades: 16
   bowtie2: 16
   maxbin: 8
   busco: 8
+
+# Used from stage 1 on (not read by the snakefile yet)
 spades_memory_gb: 50            # -m: SPAdes stops if it needs more RAM
 busco_download_path: "busco_downloads"   # local lineage datasets, BUSCO runs with --offline
 busco_gene_predictor: "miniprot"         # miniprot | metaeuk
