@@ -100,7 +100,7 @@ rule trimmomatic:
     benchmark: "benchmarks/{sample}/trimmomatic.tsv"
     shell:
         """
-        trimmomatic PE -threads {threads} {input.r1} {input.r2} \
+        trimmomatic -Xmx4g PE -threads {threads} {input.r1} {input.r2} \
             {output.r1_paired} {output.r1_unpaired} \
             {output.r2_paired} {output.r2_unpaired} \
             {params.steps} > {log} 2>&1
