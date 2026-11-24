@@ -1,135 +1,199 @@
-# Snakefile (с использованием IQ-TREE вместо RAxML)
+"""
+ParaMAG: assembly and binning of intracellular parasite MAGs
+from single-cell (MDA) sequencing data.
+
+Input:  samples.tsv - sample name and paths to R1/R2 reads
+        config.yaml - parameters
+Output: results/<sample>/...
+
+Run from the repository root:
+    snakemake --cores 32
+
+"""
+import csv
+
 configfile: "config.yaml"
 
-reads1 = config["reads1"]
-reads2 = config["reads2"]
-adapter_file = config["adapter_file"]
 
-bins = glob_wildcards("maxbin_output/bin.{binid}.fasta")
+# ---------- Samples ----------
+SAMPLES = {}
+with open(config["samples"]) as f:
+    for row in csv.DictReader(f, delimiter="\t"):
+        SAMPLES[row["sample"]] = row
 
+
+def reads_r1(wildcards):
+    """Path to the R1 reads of a sample."""
+    return SAMPLES[wildcards.sample]["r1"]
+
+
+def reads_r2(wildcards):
+    """Path to the R2 reads of a sample."""
+    return SAMPLES[wildcards.sample]["r2"]
+
+
+# ---------- Bins ----------
+BIN_SAMPLES, BIN_IDS = glob_wildcards("results/{sample}/maxbin/bin.{binid}.fasta")
+
+
+def bin_ids(sample):
+    """Bin ids found on disk for one sample, e.g. ["001", "002"]."""
+    ids = []
+    for s, b in zip(BIN_SAMPLES, BIN_IDS):
+        if s == sample:
+            ids.append(b)
+    return ids
+
+
+def bin_fastas(wildcards):
+    """All bin FASTA files of a sample."""
+    return expand("results/{sample}/maxbin/bin.{binid}.fasta",
+                  sample=wildcards.sample, binid=bin_ids(wildcards.sample))
+
+
+def busco_summaries(wildcards):
+    """BUSCO summary files for all bins of a sample."""
+    return expand("results/{sample}/busco/bin.{binid}/short_summary.specific.fungi_odb10.txt",
+                  sample=wildcards.sample, binid=bin_ids(wildcards.sample))
+
+
+# ---------- Final targets ----------
 rule all:
     input:
-        "qc_reports/fastqc_done.txt",
-        "spades_output/contigs.fasta",
-        "abundance_data.tsv",
-        expand("maxbin_output/bin.{binid}.fasta", binid=bins.binid),
-        expand("busco_output/bin.{binid}/short_summary.specific.fungi_odb10.txt", binid=bins.binid),
-        "super_tree_output.tre",
-        "report/summary_report.md"
+        expand("results/{sample}/qc/fastqc_done", sample=SAMPLES),
+        expand("results/{sample}/assembly/contigs.fasta", sample=SAMPLES),
+        expand("results/{sample}/mapping/abundance_data.tsv", sample=SAMPLES),
+        # the report needs BUSCO of every bin and the tree, so they are built too
+        expand("results/{sample}/report/summary_report.md", sample=SAMPLES),
 
+
+# ---------- Steps ----------
 rule fastqc:
     input:
-        reads1, reads2
+        r1=reads_r1,
+        r2=reads_r2,
     output:
-        "qc_reports/fastqc_done.txt"
+        "results/{sample}/qc/fastqc_done"
     shell:
         """
-        fastqc {input} -o qc_reports/
+        fastqc {input.r1} {input.r2} -o results/{wildcards.sample}/qc/
         touch {output}
         """
 
+
 rule trimmomatic:
     input:
-        r1=reads1,
-        r2=reads2
+        r1=reads_r1,
+        r2=reads_r2,
     output:
-        r1_paired="trimmed/sample_R1_paired.fastq",
-        r1_unpaired="trimmed/sample_R1_unpaired.fastq",
-        r2_paired="trimmed/sample_R2_paired.fastq",
-        r2_unpaired="trimmed/sample_R2_unpaired.fastq"
+        r1_paired="results/{sample}/trimmed/R1_paired.fastq",
+        r1_unpaired="results/{sample}/trimmed/R1_unpaired.fastq",
+        r2_paired="results/{sample}/trimmed/R2_paired.fastq",
+        r2_unpaired="results/{sample}/trimmed/R2_unpaired.fastq",
     params:
-        adapter_file=adapter_file
+        steps=config["trimmomatic_steps"],
     shell:
         """
         trimmomatic PE {input.r1} {input.r2} \
             {output.r1_paired} {output.r1_unpaired} \
             {output.r2_paired} {output.r2_unpaired} \
-            ILLUMINACLIP:{params.adapter_file}:2:30:10 LEADING:3 TRAILING:3 SLIDINGWINDOW:4:15 MINLEN:36
+            {params.steps}
         """
+
 
 rule spades:
     input:
-        r1="trimmed/sample_R1_paired.fastq",
-        r2="trimmed/sample_R2_paired.fastq"
+        r1="results/{sample}/trimmed/R1_paired.fastq",
+        r2="results/{sample}/trimmed/R2_paired.fastq",
     output:
-        "spades_output/contigs.fasta"
+        "results/{sample}/assembly/contigs.fasta"
+    params:
+        mode=config["spades_mode"],
     shell:
-        "spades.py --sc -1 {input.r1} -2 {input.r2} -o spades_output/"
+        "spades.py {params.mode} -1 {input.r1} -2 {input.r2} -o results/{wildcards.sample}/assembly/"
+
 
 rule abundance:
     input:
-        contigs="spades_output/contigs.fasta",
-        r1="trimmed/sample_R1_paired.fastq",
-        r2="trimmed/sample_R2_paired.fastq"
+        contigs="results/{sample}/assembly/contigs.fasta",
+        r1="results/{sample}/trimmed/R1_paired.fastq",
+        r2="results/{sample}/trimmed/R2_paired.fastq",
     output:
-        bam="aln.bam",
-        depth="abundance_data.tsv"
+        bam="results/{sample}/mapping/aln.bam",
+        depth="results/{sample}/mapping/abundance_data.tsv",
+    params:
+        index="results/{sample}/mapping/contigs_index",
     shell:
         """
-        bowtie2-build {input.contigs} contigs_index
-        bowtie2 -x contigs_index -1 {input.r1} -2 {input.r2} | samtools view -bS - | samtools sort -o {output.bam}
+        bowtie2-build {input.contigs} {params.index}
+        bowtie2 -x {params.index} -1 {input.r1} -2 {input.r2} | samtools view -bS - | samtools sort -o {output.bam}
         samtools index {output.bam}
         jgi_summarize_bam_contig_depths --outputDepth {output.depth} {output.bam}
         """
 
+
 rule coverage:
     input:
-        bam="aln.bam"
+        "results/{sample}/mapping/aln.bam"
     output:
-        "coverage.tsv"
+        "results/{sample}/mapping/coverage.tsv"
     shell:
-        "samtools idxstats {input.bam} > {output}"
+        "samtools idxstats {input} > {output}"
+
 
 rule maxbin:
     input:
-        contigs="spades_output/contigs.fasta",
-        abund="abundance_data.tsv"
+        contigs="results/{sample}/assembly/contigs.fasta",
+        abund="results/{sample}/mapping/abundance_data.tsv",
     output:
-        expand("maxbin_output/bin.{i:03}.fasta", i=range(1, 6))
+        "results/{sample}/maxbin/bin.001.fasta",
+        "results/{sample}/maxbin/bin.002.fasta",
+        "results/{sample}/maxbin/bin.003.fasta",
+        "results/{sample}/maxbin/bin.004.fasta",
+        "results/{sample}/maxbin/bin.005.fasta",
     shell:
-        """
-        run_MaxBin.pl -contig {input.contigs} -out maxbin_output/bin -abund {input.abund}
-        """
+        "run_MaxBin.pl -contig {input.contigs} -out results/{wildcards.sample}/maxbin/bin -abund {input.abund}"
+
 
 rule busco:
     input:
-        "maxbin_output/bin.{binid}.fasta"
+        "results/{sample}/maxbin/bin.{binid}.fasta"
     output:
-        "busco_output/bin.{binid}/short_summary.specific.fungi_odb10.txt"
-    params:
-        lineage="fungi_odb10",
-        outdir="busco_output/bin.{binid}"
+        "results/{sample}/busco/bin.{binid}/short_summary.specific.fungi_odb10.txt"
     shell:
-        "busco -i {input} -l {params.lineage} -o {params.outdir} -m genome"
+        "busco -i {input} -l fungi_odb10 -o results/{wildcards.sample}/busco/bin.{wildcards.binid} -m genome"
+
 
 rule align_bins:
     input:
-        expand("maxbin_output/bin.{binid}.fasta", binid=bins.binid)
+        bin_fastas
     output:
-        "aligned_bins.fasta"
+        "results/{sample}/phylogeny/aligned_bins.fasta"
     shell:
         """
-        cat {input} > concatenated_bins.fasta
-        mafft --auto concatenated_bins.fasta > {output}
+        cat {input} > results/{wildcards.sample}/phylogeny/concatenated_bins.fasta
+        mafft --auto results/{wildcards.sample}/phylogeny/concatenated_bins.fasta > {output}
         """
+
 
 rule phylogenomics:
     input:
-        "aligned_bins.fasta"
+        "results/{sample}/phylogeny/aligned_bins.fasta"
     output:
-        "super_tree_output.tre"
+        "results/{sample}/phylogeny/super_tree_output.tre"
     shell:
         """
-        iqtree2 -s {input} -m MFP -bb 1000 -nt AUTO -pre iqtree_output
-        cp iqtree_output.treefile {output}
+        iqtree2 -s {input} -m MFP -bb 1000 -nt AUTO -pre results/{wildcards.sample}/phylogeny/iqtree_output
+        cp results/{wildcards.sample}/phylogeny/iqtree_output.treefile {output}
         """
+
 
 rule report:
     input:
-        summaries=expand("busco_output/bin.{binid}/short_summary.specific.fungi_odb10.txt", binid=bins.binid),
-        tree="super_tree_output.tre"
+        summaries=busco_summaries,
+        tree="results/{sample}/phylogeny/super_tree_output.tre",
     output:
-        "report/summary_report.md"
+        "results/{sample}/report/summary_report.md"
     shell:
         """
         echo "# Pipeline Summary Report" > {output}
@@ -138,4 +202,3 @@ rule report:
         echo "\n## Phylogenetic Tree File" >> {output}
         echo "Tree saved as: {input.tree}" >> {output}
         """
-

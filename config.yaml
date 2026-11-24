@@ -1,3 +1,27 @@
-reads1: "input_reads/sample_R1.fastq"
-reads2: "input_reads/sample_R2.fastq"
-adapter_file: "adapters.fa"
+# ParaMAG configuration: all parameters live here, not in the snakefile.
+# Paths are relative to the repository root (where snakemake is run).
+
+samples: "samples.tsv"          # columns: sample, r1, r2
+
+# same trimming steps as the original pipeline
+trimmomatic_steps: "ILLUMINACLIP:adapters.fa:2:30:10 LEADING:3 TRAILING:3 SLIDINGWINDOW:4:15 MINLEN:36"
+
+spades_mode: "--sc"             # single-cell (MDA) mode, as in the paper
+
+# Used from stage 1 on (not read by the snakefile yet)
+threads:                        # lab server: 32 cores, 62 GB RAM
+  fastqc: 4
+  trimmomatic: 8
+  spades: 16
+  bowtie2: 16
+  maxbin: 8
+  busco: 8
+spades_memory_gb: 50            # -m: SPAdes stops if it needs more RAM
+busco_download_path: "busco_downloads"   # local lineage datasets, BUSCO runs with --offline
+busco_gene_predictor: "miniprot"         # miniprot | metaeuk
+busco_lineages:
+  - microsporidia_odb10
+  - microsporidia_odb12.2
+  - eukaryota_odb10
+  - fungi_odb10
+  - bacteria_odb10

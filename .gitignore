@@ -1,0 +1,11 @@
+# Pipeline outputs and Snakemake metadata (never commit results)
+results/
+logs/
+benchmarks/
+.snakemake/
+
+# Local BUSCO lineage datasets (hundreds of MB)
+busco_downloads/
+
+# OS junk
+.DS_Store
